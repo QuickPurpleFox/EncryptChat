@@ -54,4 +54,14 @@ public partial class MainWindow : Window
             MessageText.Text = string.Empty;
         }
     }
+
+    private void ChangedNetMode(object sender, SelectionChangedEventArgs  e)
+    {
+        if (NetMode?.SelectedIndex == 1)
+        {
+            MessageText.IsEnabled = false;
+            SendMessageButton.IsEnabled = false;
+            UserInfo.Text = "SERWER MODE";
+        }
+    }
 }
