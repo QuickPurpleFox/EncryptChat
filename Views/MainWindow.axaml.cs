@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -50,8 +51,15 @@ public partial class MainWindow : Window
         var message = MessageText.Text;
         if (!string.IsNullOrEmpty(message))
         {
-            MainWindowViewModel.Messages.Add("You: " + message);
             MessageText.Text = string.Empty;
+            if ((socket.GetType() == typeof(SocketConnection)))
+            {
+                socket.SendMessageClientPublic(message);
+            }
+            else
+            {
+                MainWindowViewModel.Messages.Add("Error: connection not established!");
+            }
         }
     }
 
@@ -59,9 +67,12 @@ public partial class MainWindow : Window
     {
         if (NetMode?.SelectedIndex == 1)
         {
-            MessageText.IsEnabled = false;
-            SendMessageButton.IsEnabled = false;
+            MessageText.IsVisible = false;
+            SendMessageButton.IsVisible = false;
+            IpBlock.IsVisible = false;
+            IpBox.IsVisible = false;
             UserInfo.Text = "SERWER MODE";
+            ConnectButton.Content = "Start server";
         }
     }
 }
