@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading.Tasks;
 using EncryptChat.ViewModels;
 
 namespace EncryptChat.Models;
@@ -36,7 +37,7 @@ public class SocketConnection
         StartClient();
     }
 
-    private static void StartServer()
+    private static async Task StartServer()
     {
         _host = Dns.GetHostEntry("localhost");
         _ipAddress = _host.AddressList[0];
@@ -57,8 +58,9 @@ public class SocketConnection
             MainWindowViewModel.Messages.Add("Waiting for a connection...");
             
             // Accept a connection
-            _handler = ServerSocket.Accept();
-
+            _handler = await ServerSocket.AcceptAsync();
+            while (true)
+            {
                 // Incoming data from the client.
                 string? data = null;
                 byte[]? bytes = null;
@@ -66,7 +68,7 @@ public class SocketConnection
                 while (true)
                 {
                     bytes = new byte[1024];
-                    int bytesRec = _handler.Receive(bytes);
+                    int bytesRec = await _handler.ReceiveAsync(bytes);
                     data += Encoding.ASCII.GetString(bytes, 0, bytesRec);
                     if (data.IndexOf("<EOF>") > -1)
                     {
@@ -77,7 +79,8 @@ public class SocketConnection
                 MainWindowViewModel.Messages.Add("Text received : " + data);
 
                 byte[] msg = Encoding.ASCII.GetBytes(data);
-                _handler.Send(msg);
+                await _handler.SendAsync(msg);
+            }
                 /*handler.Shutdown(SocketShutdown.Both);
                 handler.Close();*/
         }
@@ -136,8 +139,8 @@ public class SocketConnection
         int bytesSent = ClientSocket.Send(bytes);
 
         // Receive the response from the remote device.
-        //int bytesRec = ClientSocket.Receive(bytes);
-        //MainWindowViewModel.Messages.Add("Echoed test = " + Encoding.ASCII.GetString(bytes, 0, bytesRec));
+        int bytesRec = ClientSocket.Receive(bytes);
+        MainWindowViewModel.Messages.Add("you: " + Encoding.ASCII.GetString(bytes, 0, bytesRec));
     }
 
     public void SendMessageClientPublic(string message)
