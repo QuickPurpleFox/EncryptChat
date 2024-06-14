@@ -55,6 +55,7 @@ public partial class MainWindow : Window
             if ((socket.GetType() == typeof(SocketConnection)))
             {
                 socket.SendMessageClientPublic(message);
+                MainWindowViewModel.Messages.Add("You: " + message);
             }
             else
             {

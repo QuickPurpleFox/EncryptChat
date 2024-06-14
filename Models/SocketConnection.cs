@@ -80,36 +80,45 @@ namespace EncryptChat.Models
 
         private static async Task HandleClient(Socket handler)
         {
-            while (true)
+            try
             {
-                string? data = null;
-                byte[]? bytes = null;
-
                 while (true)
                 {
-                    bytes = new byte[1024];
-                    int bytesRec = await handler.ReceiveAsync(new ArraySegment<byte>(bytes), SocketFlags.None);
-                    data += Encoding.ASCII.GetString(bytes, 0, bytesRec);
-                    if (data.IndexOf("<EOF>") > -1)
+                    byte[] buffer = new byte[1024];
+                    int bytesRec = await handler.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
+                    if (bytesRec > 0)
                     {
-                        break;
-                    }
-                }
+                        string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
+                        MainWindowViewModel.Messages.Add("Text received: " + data);
 
-                MainWindowViewModel.Messages.Add("Text received: " + data);
+                        byte[] msg = Encoding.ASCII.GetBytes(data);
 
-                byte[] msg = Encoding.ASCII.GetBytes(data);
-                
-                lock (_lock)
-                {
-                    foreach (var clientConnection in _clientSockets)
-                    {
-                        if (clientConnection != handler) // Avoid echoing the message back to the sender
+                        lock (_lock)
                         {
-                            clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
+                            foreach (var clientConnection in _clientSockets)
+                            {
+                                if (clientConnection != handler) // Avoid echoing the message back to the sender
+                                {
+                                    clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
+                                }
+                            }
                         }
                     }
                 }
+            }
+            catch (SocketException)
+            {
+                // Handle client disconnection
+                lock (_lock)
+                {
+                    _clientSockets.Remove(handler);
+                }
+                MainWindowViewModel.Messages.Add("Client disconnected.");
+                handler.Close();
+            }
+            catch (Exception ex)
+            {
+                MainWindowViewModel.Messages.Add("Error: " + ex.Message);
             }
         }
 
@@ -130,6 +139,9 @@ namespace EncryptChat.Models
                 {
                     ClientSocket.Connect(_remoteEP);
                     MainWindowViewModel.Messages.Add("Socket connected to " + ClientSocket?.RemoteEndPoint?.ToString());
+
+                    // Start receiving messages from the server
+                    Task.Run(() => ReceiveMessages());
                 }
                 catch (ArgumentNullException ane)
                 {
@@ -151,23 +163,47 @@ namespace EncryptChat.Models
             }
         }
 
+        private static async Task ReceiveMessages()
+        {
+            try
+            {
+                while (true)
+                {
+                    byte[] buffer = new byte[1024];
+                    int bytesRec = await ClientSocket.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
+                    if (bytesRec > 0)
+                    {
+                        string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
+                        MainWindowViewModel.Messages.Add("Server: " + data);
+                    }
+                }
+            }
+            catch (SocketException)
+            {
+                MainWindowViewModel.Messages.Add("Disconnected from server.");
+            }
+            catch (Exception ex)
+            {
+                MainWindowViewModel.Messages.Add("Error: " + ex.Message);
+            }
+        }
+
         private static void SendMessageClient(byte[] bytes)
         {
-            // Send the data through the socket.
-            int bytesSent = ClientSocket.Send(bytes);
-
-            // Receive the response from the remote device.
-            int bytesRec = ClientSocket.Receive(bytes);
-            MainWindowViewModel.Messages.Add("you: " + Encoding.ASCII.GetString(bytes, 0, bytesRec));
+            try
+            {
+                // Send the data through the socket.
+                int bytesSent = ClientSocket.Send(bytes);
+            }
+            catch (Exception ex)
+            {
+                MainWindowViewModel.Messages.Add("Error sending message: " + ex.Message);
+            }
         }
 
         public void SendMessageClientPublic(string message)
         {
-            byte[] bytes = new byte[1024];
-
-            message = message + "<EOF>";
-            bytes = Encoding.ASCII.GetBytes(message);
-
+            byte[] bytes = Encoding.ASCII.GetBytes(message + "<EOF>");
             SendMessageClient(bytes);
         }
     }
