@@ -5,75 +5,107 @@ using Avalonia.Interactivity;
 using EncryptChat.Models;
 using EncryptChat.ViewModels;
 
-namespace EncryptChat.Views;
-
-public partial class MainWindow : Window
+namespace EncryptChat.Views
 {
-    private SocketConnection socket;
-    
-    public MainWindow()
+    /// <summary>
+    /// Main window for the chat application.
+    /// </summary>
+    public partial class MainWindow : Window
     {
-        InitializeComponent();
-        ChatList.ItemsSource = MainWindowViewModel.Messages;
-    }
+        private SocketConnection _socket;
 
-    private void OnSendClick(object sender, RoutedEventArgs e)
-    {
-        SendMessage();
-    }
+        /// <summary>
+        /// Initializes a new instance of the MainWindow class.
+        /// </summary>
+        public MainWindow()
+        {
+            InitializeComponent();
+            ChatList.ItemsSource = MainWindowViewModel.Messages;
+        }
 
-    private void OnConnectClick(object sender, RoutedEventArgs e)
-    {
-        if (NetMode.SelectedIndex == 1)
-        {
-            socket = new SocketConnection(true);
-        }
-        else if(IpBlock.Text != null)
-        {
-            socket = new SocketConnection(IpBlock.Text, 1621);
-        }
-        else
-        {
-            MainWindowViewModel.Messages.Add("ERROR: " + "internal error, contact with administrator");
-        }
-    }
-    
-    private async void InputBox_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter)
+        /// <summary>
+        /// Event handler for the Send button click event.
+        /// </summary>
+        /// <param name="sender">The event source.</param>
+        /// <param name="e">Event arguments.</param>
+        private void OnSendClick(object sender, RoutedEventArgs e)
         {
             SendMessage();
         }
-    }
 
-    private async void SendMessage()
-    {
-        var message = MessageText.Text;
-        if (!string.IsNullOrEmpty(message))
+        /// <summary>
+        /// Event handler for the Connect button click event.
+        /// </summary>
+        /// <param name="sender">The event source.</param>
+        /// <param name="e">Event arguments.</param>
+        private void OnConnectClick(object sender, RoutedEventArgs e)
         {
-            MessageText.Text = string.Empty;
-            if ((socket.GetType() == typeof(SocketConnection)))
+            if (NetMode.SelectedIndex == 1)
             {
-                socket.SendMessageClientPublic(message);
-                MainWindowViewModel.Messages.Add("You: " + message);
+                _socket = new SocketConnection(true);
+            }
+            else if (IpBlock.Text != null)
+            {
+                MainWindowViewModel.Messages.Add("Debug: " + IpBox.Text);
+                _socket = new SocketConnection(IpBox.Text.ToString(), 11000);
             }
             else
             {
-                MainWindowViewModel.Messages.Add("Error: connection not established!");
+                MainWindowViewModel.Messages.Add("ERROR: " + "internal error, contact with administrator");
             }
         }
-    }
 
-    private void ChangedNetMode(object sender, SelectionChangedEventArgs  e)
-    {
-        if (NetMode?.SelectedIndex == 1)
+        /// <summary>
+        /// Event handler for the KeyDown event of the input box.
+        /// Sends a message when the Enter key is pressed.
+        /// </summary>
+        /// <param name="sender">The event source.</param>
+        /// <param name="e">Event arguments.</param>
+        private async void InputBox_KeyDown(object sender, KeyEventArgs e)
         {
-            MessageText.IsVisible = false;
-            SendMessageButton.IsVisible = false;
-            IpBlock.IsVisible = false;
-            IpBox.IsVisible = false;
-            UserInfo.Text = "SERWER MODE";
-            ConnectButton.Content = "Start server";
+            if (e.Key == Key.Enter)
+            {
+                SendMessage();
+            }
+        }
+
+        /// <summary>
+        /// Sends the message entered in the input box.
+        /// </summary>
+        private async void SendMessage()
+        {
+            var message = MessageText.Text;
+            if (!string.IsNullOrEmpty(message))
+            {
+                MessageText.Text = string.Empty;
+                if ((_socket.GetType() == typeof(SocketConnection)))
+                {
+                    _socket.SendMessageClientPublic(message);
+                    MainWindowViewModel.Messages.Add("You: " + message);
+                }
+                else
+                {
+                    MainWindowViewModel.Messages.Add("Error: connection not established!");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Event handler for changing the network mode (client/server).
+        /// </summary>
+        /// <param name="sender">The event source.</param>
+        /// <param name="e">Event arguments.</param>
+        private void ChangedNetMode(object sender, SelectionChangedEventArgs e)
+        {
+            if (NetMode?.SelectedIndex == 1)
+            {
+                MessageText.IsVisible = false;
+                SendMessageButton.IsVisible = false;
+                IpBlock.IsVisible = false;
+                IpBox.IsVisible = false;
+                UserInfo.Text = "SERVER MODE";
+                ConnectButton.Content = "Start server";
+            }
         }
     }
 }
