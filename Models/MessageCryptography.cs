@@ -7,14 +7,14 @@ namespace EncryptChat.Models;
 
 public class MessageCryptography
 {
-    private string _RsaPublicKey;
-    private string _RsaPrivateKey;
+    private static string _RsaPublicKey;
+    private static string _RsaPrivateKey;
 
-    private string? _AesPrivateKey;
+    private static string? _AesPrivateKey;
     
     public static Dictionary<string, string> ClientPublicKeys = new Dictionary<string, string>();
     
-    MessageCryptography()
+    static MessageCryptography()
     {
         //RSA
         var cryptoServiceProvider = new RSACryptoServiceProvider(2048); //2048 
@@ -25,7 +25,7 @@ public class MessageCryptography
         _RsaPrivateKey = GetKeyString(privateKey);
     }
     
-    private string GetKeyString(RSAParameters publicKey)
+    private static string GetKeyString(RSAParameters publicKey)
     {
 
         var stringWriter = new System.IO.StringWriter();
@@ -77,7 +77,7 @@ public class MessageCryptography
         }
     }
 
-    public string GetPublicKey()
+    public static string GetPublicKey()
     {
         return _RsaPublicKey;
     }

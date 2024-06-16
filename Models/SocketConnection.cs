@@ -228,7 +228,7 @@ namespace EncryptChat.Models
                         }
                         else if (data.StartsWith("<RSA_PUBLIC_KEY_REQUEST>"))
                         {
-                            
+                            MessageCryptography.GetPublicKey();
                         }
                         else
                         {
