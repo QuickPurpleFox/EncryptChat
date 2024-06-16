@@ -173,11 +173,11 @@ namespace EncryptChat.Models
                 }
                 MainWindowViewModel.Messages.Add("Connecting to: " + _ipAddress);
                 //_remoteEP = new IPEndPoint(_ipAddress, _port);
-                _host = Dns.GetHostEntry("localhost");
-                _remoteEP = new IPEndPoint(_host.AddressList[0], _port);
+                _host = Dns.GetHostEntry(_ip);
+                _remoteEP = new IPEndPoint(_ipAddress, _port);
 
                 // Create a socket
-                ClientSocket = new Socket(_host.AddressList[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                ClientSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 
 
                 try
