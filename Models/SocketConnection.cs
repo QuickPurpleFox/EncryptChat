@@ -166,12 +166,19 @@ namespace EncryptChat.Models
 
             try
             {
-                _ipAddress = IPAddress.Parse(_ip!);
+                if (!IPAddress.TryParse(_ip!, out _ipAddress))
+                {
+                    MainWindowViewModel.Messages.Add("Invalid IP address format.");
+                    return;
+                }
                 MainWindowViewModel.Messages.Add("Connecting to: " + _ipAddress);
-                _remoteEP = new IPEndPoint(_ipAddress, _port);
+                //_remoteEP = new IPEndPoint(_ipAddress, _port);
+                _host = Dns.GetHostEntry("localhost");
+                _remoteEP = new IPEndPoint(_host.AddressList[0], _port);
 
                 // Create a socket
-                ClientSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                ClientSocket = new Socket(_host.AddressList[0].AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                
 
                 try
                 {
@@ -181,13 +188,13 @@ namespace EncryptChat.Models
                     // Start receiving messages from the server
                     Task.Run(() => ReceiveMessages());
                 }
-                catch (ArgumentNullException ane)
-                {
-                    MainWindowViewModel.Messages.Add("ArgumentNullException: " + ane.ToString());
-                }
                 catch (SocketException se)
                 {
                     MainWindowViewModel.Messages.Add("SocketException: " + se.ToString());
+                }
+                catch (ArgumentNullException ane)
+                {
+                    MainWindowViewModel.Messages.Add("ArgumentNullException: " + ane.ToString());
                 }
                 catch (Exception e)
                 {
@@ -215,7 +222,18 @@ namespace EncryptChat.Models
                     if (bytesRec > 0)
                     {
                         string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
-                        MainWindowViewModel.Messages.Add("Server: " + data);
+                        if (data.StartsWith("<RSA_PUBLIC_KEY>") )
+                        {
+                            //TODO: Implement loading a public key
+                        }
+                        else if (data.StartsWith("<RSA_PUBLIC_KEY_REQUEST>"))
+                        {
+                            
+                        }
+                        else
+                        {
+                            MainWindowViewModel.Messages.Add("Server: " + data); //TODO: change to decryption
+                        }
                     }
                 }
             }
@@ -252,7 +270,7 @@ namespace EncryptChat.Models
         /// <param name="message">The message to send as a string.</param>
         public void SendMessageClientPublic(string message)
         {
-            byte[] bytes = Encoding.ASCII.GetBytes(message + "<EOF>");
+            byte[] bytes = Encoding.ASCII.GetBytes("<MSG>" + message);
             SendMessageClient(bytes);
         }
 
