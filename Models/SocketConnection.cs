@@ -81,7 +81,7 @@ namespace EncryptChat.Models
                     {
                         _clientSockets.Add(handler);
                     }
-                    MainWindowViewModel.Messages.Add("Client connected.");
+                    MainWindowViewModel.Messages.Add("Client connected, ip: " + IPAddress.Parse(((IPEndPoint)handler.RemoteEndPoint).Address.ToString()));
 
                     // Handle the client in a separate task
                     Task.Run(() => HandleClient(handler));
@@ -120,7 +120,7 @@ namespace EncryptChat.Models
                         {
                             foreach (var clientConnection in _clientSockets)
                             {
-                                if (clientConnection != handler) // Avoid echoing the message back to the sender
+                                if (clientConnection != handler || !messageWithIp.Contains("<RSA_PUBLIC_KEY>")) // Avoid echoing the message back to the sender and check if message is public key
                                 {
                                     clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
                                 }
@@ -229,10 +229,11 @@ namespace EncryptChat.Models
                         else if (data.StartsWith("<RSA_PUBLIC_KEY_REQUEST>"))
                         {
                             MessageCryptography.GetPublicKey();
+                            
                         }
                         else
                         {
-                            MainWindowViewModel.Messages.Add("Server: " + data); //TODO: change to decryption
+                            MainWindowViewModel.Messages.Add(data); //TODO: change to decryption
                         }
                     }
                 }
