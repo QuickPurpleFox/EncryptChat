@@ -77,8 +77,13 @@ public class MessageCryptography
         }
     }
 
-    public static string GetPublicKey()
+    public static string GetPublicKeyStatic()
     {
         return _RsaPublicKey;
+    }
+    
+    public string GetPublicKey()
+    {
+        return GetPublicKeyStatic();
     }
 }
