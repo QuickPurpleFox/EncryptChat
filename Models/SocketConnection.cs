@@ -135,8 +135,9 @@ namespace EncryptChat.Models
                                 }
                                 else if (data.Contains("<RSA_PUBLIC_KEY>"))
                                 {
-                                    MainWindowViewModel.Messages.Add(data);
-                                    string publicKey = ExtractPublicKey(data);
+                                    data = data.Replace("<RSA_PUBLIC_KEY>", "");
+                                    string publicKey = XmlHelper.GetModulusFromXml(data);
+                                    MainWindowViewModel.Messages.Add("PublicKey: " + publicKey);
                                     if (!string.IsNullOrEmpty(publicKey))
                                     { 
                                         _clientPublicKeys[senderIp] = publicKey;
