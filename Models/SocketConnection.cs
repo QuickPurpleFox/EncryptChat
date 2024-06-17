@@ -71,11 +71,10 @@ namespace EncryptChat.Models
                 // Create a socket
                 ServerSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
-                // A Socket must be associated with an endpoint using the Bind method
+                // Bind the socket to the local endpoint and listen for incoming connections
                 ServerSocket.Bind(_localEndPoint);
-
-                // Listen for incoming connections
                 ServerSocket.Listen(10);
+                
                 MainWindowViewModel.Messages.Add("Server listening on port : 11000...");
                 MainWindowViewModel.Messages.Add("Waiting for connections...");
 
@@ -87,7 +86,7 @@ namespace EncryptChat.Models
                     {
                         _clientSockets.Add(handler);
                     }
-                    MainWindowViewModel.Messages.Add("Client connected, ip: " + IPAddress.Parse(((IPEndPoint)handler.RemoteEndPoint).Address.ToString()));
+                    MainWindowViewModel.Messages.Add("Client connected, IP: " + IPAddress.Parse(((IPEndPoint)handler.RemoteEndPoint).Address.ToString()));
 
                     // Handle the client in a separate task
                     await Task.Run(() => HandleClient(handler));
@@ -107,7 +106,7 @@ namespace EncryptChat.Models
         {
             try
             {
-                MainWindowViewModel.Messages.Add("sending: "+ "<RSA_PUBLIC_KEY_REQUEST>");
+                MainWindowViewModel.Messages.Add("Sending: " + "<RSA_PUBLIC_KEY_REQUEST>");
                 handler.Send(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
                 
                 while (true)
@@ -129,11 +128,7 @@ namespace EncryptChat.Models
                         {
                             foreach (var clientConnection in _clientSockets)
                             {
-                                if (clientConnection != handler || !data.Contains("<RSA_PUBLIC_KEY>")) // Avoid echoing the message back to the sender and check if message is public key
-                                {
-                                    clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
-                                }
-                                else if (data.Contains("<RSA_PUBLIC_KEY>"))
+                                if (data.Contains("<RSA_PUBLIC_KEY>"))
                                 {
                                     data = data.Replace("<RSA_PUBLIC_KEY>", "");
                                     string publicKey = XmlHelper.GetModulusFromXml(data);
@@ -143,12 +138,16 @@ namespace EncryptChat.Models
                                         _clientPublicKeys[senderIp] = publicKey;
                                     }
                                 }
+                                else if (data.Contains("<AES_KEY>"))
+                                {
+                                    
+                                }
+                                else if (clientConnection != handler || !data.Contains("<RSA_PUBLIC_KEY>")) // Avoid echoing the message back to the sender and check if message is public key
+                                {
+                                    clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
+                                }
                             }
                         }
-
-                        // Optionally, add or update the client's public key in the dictionary
-                        // Assuming the public key is part of the data, you'll need to parse it out
-                        // For example:
                     }
                 }
             }
@@ -183,14 +182,13 @@ namespace EncryptChat.Models
                     return;
                 }
                 MainWindowViewModel.Messages.Add("Connecting to: " + _ipAddress);
-                //_remoteEP = new IPEndPoint(_ipAddress, _port);
+                
                 _host = Dns.GetHostEntry(_ip);
                 _remoteEP = new IPEndPoint(_ipAddress, _port);
 
                 // Create a socket
                 ClientSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 
-
                 try
                 {
                     ClientSocket.Connect(_remoteEP);
@@ -211,7 +209,6 @@ namespace EncryptChat.Models
                 {
                     MainWindowViewModel.Messages.Add("Unexpected exception: " + e.ToString());
                 }
-
             }
             catch (Exception e)
             {
@@ -233,14 +230,14 @@ namespace EncryptChat.Models
                     if (bytesRec > 0)
                     {
                         string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
-                        if (data.Contains("<RSA_PUBLIC_KEY>") )
+                        if (data.Contains("<RSA_PUBLIC_KEY>"))
                         {
-                            MainWindowViewModel.Messages.Add("Received" + data);
+                            MainWindowViewModel.Messages.Add("Received: " + data);
                             //TODO: Implement loading a public key
                         }
                         else if (data.Contains("<RSA_PUBLIC_KEY_REQUEST>") && !_isServerStatic)
                         {
-                            MainWindowViewModel.Messages.Add("debug: Crypto.GetPublicKey()");
+                            MainWindowViewModel.Messages.Add("Debug: Crypto.GetPublicKey()");
                             byte[] PkMsg = Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY>" + Crypto.GetPublicKey());
                             SendMessageClient(PkMsg);
                         }
@@ -274,7 +271,7 @@ namespace EncryptChat.Models
             }
             catch (Exception ex)
             {
-                MainWindowViewModel.Messages.Add("Error sending message: " + System.Text.Encoding.ASCII.GetString(bytes) + " | "+ ex.Message);
+                MainWindowViewModel.Messages.Add("Error sending message: " + Encoding.ASCII.GetString(bytes) + " | " + ex.Message);
             }
         }
 
@@ -286,24 +283,6 @@ namespace EncryptChat.Models
         {
             byte[] bytes = Encoding.ASCII.GetBytes("<MSG>" + message);
             SendMessageClient(bytes);
-        }
-
-        /// <summary>
-        /// Extracts the public key from the message data.
-        /// </summary>
-        /// <param name="data">The message data.</param>
-        /// <returns>The extracted public key as a string.</returns>
-        private static string ExtractPublicKey(string data)
-        {
-            // Implement logic to extract public key from the data
-            // For now, let's assume the public key is included in the data and can be parsed out
-            // This is just an example, you need to adapt this based on your actual data format
-            string[] parts = data.Split(new[] { "PUBLICKEY:" }, StringSplitOptions.None);
-            if (parts.Length > 1)
-            {
-                return parts[1].Split(' ')[0]; // Extract the key part
-            }
-            return string.Empty;
         }
     }
 }
