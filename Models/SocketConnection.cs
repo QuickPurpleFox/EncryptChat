@@ -23,11 +23,16 @@ namespace EncryptChat.Models
         public static Socket? ServerSocket;
 
         private static List<Socket> _clientSockets = new List<Socket>();
+        private static List<Socket> _socketSendPublicKey = new List<Socket>();
+        
         private static object _lock = new object();
         public static MessageCryptography Crypto;
 
         // Dictionary to store public keys for each client IP address
         private static Dictionary<string, string> _clientPublicKeys = new Dictionary<string, string>();
+        
+        // Dictionary to store private AES keys
+        private static Dictionary<string, string> _clientAESKeys = new Dictionary<string, string>();
 
         /// <summary>
         /// Initializes a new instance of the SocketConnection class as a server.
@@ -89,7 +94,7 @@ namespace EncryptChat.Models
                     MainWindowViewModel.Messages.Add("Client connected, IP: " + IPAddress.Parse(((IPEndPoint)handler.RemoteEndPoint).Address.ToString()));
 
                     // Handle the client in a separate task
-                    await Task.Run(() => HandleClient(handler));
+                    Task.Run(() => HandleClient(handler));
                 }
             }
             catch (Exception e)
@@ -106,11 +111,18 @@ namespace EncryptChat.Models
         {
             try
             {
-                MainWindowViewModel.Messages.Add("Sending: " + "<RSA_PUBLIC_KEY_REQUEST>");
-                handler.Send(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
-                
                 while (true)
                 {
+                    foreach (var clientConnection in _clientSockets)
+                    {
+                        if (!_socketSendPublicKey.Contains(clientConnection))
+                        {
+                            MainWindowViewModel.Messages.Add("Sending: " + "<RSA_PUBLIC_KEY_REQUEST>");
+                            handler.Send(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
+                            _socketSendPublicKey.Add(clientConnection);
+                        }
+                    }
+
                     byte[] buffer = new byte[1024];
                     int bytesRec = await handler.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
                     if (bytesRec > 0)
@@ -140,9 +152,9 @@ namespace EncryptChat.Models
                                 }
                                 else if (data.Contains("<AES_KEY>"))
                                 {
-                                    
+                                    //TODO: send encrypted AES key to all clients
                                 }
-                                else if (clientConnection != handler || !data.Contains("<RSA_PUBLIC_KEY>")) // Avoid echoing the message back to the sender and check if message is public key
+                                else if (clientConnection != handler) // Avoid echoing the message back to the sender and check if message is public key
                                 {
                                     clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
                                 }
