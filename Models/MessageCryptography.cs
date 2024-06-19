@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -108,5 +109,95 @@ namespace EncryptChat.Models
         {
             return GetPublicKeyStatic();
         }
+        
+        static string ComputeSha256Hash(string rawData)
+        {
+            // Create a SHA256 instance
+            using (SHA256 sha256Hash = SHA256.Create())
+            {
+                // Compute the hash as a byte array
+                byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(rawData));
+
+                // Convert the byte array to a string
+                StringBuilder builder = new StringBuilder();
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    builder.Append(bytes[i].ToString("x2"));
+                }
+                return builder.ToString();
+            }
+        }
+        
+        static byte[] EncryptStringToBytes_Aes(string plainText, string key)
+    {
+        byte[] encrypted;
+
+        using (Aes aesAlg = Aes.Create())
+        {
+            aesAlg.Key = Encoding.UTF8.GetBytes(key);
+            aesAlg.Mode = CipherMode.CBC;
+
+            // Generate IV (Initialization Vector)
+            aesAlg.GenerateIV();
+            byte[] iv = aesAlg.IV;
+
+            // Create an encryptor to perform the stream transform.
+            ICryptoTransform encryptor = aesAlg.CreateEncryptor(aesAlg.Key, iv);
+
+            // Create the streams used for encryption.
+            using (MemoryStream msEncrypt = new MemoryStream())
+            {
+                // Prepend IV to the encrypted bytes
+                msEncrypt.Write(iv, 0, iv.Length);
+
+                using (CryptoStream csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
+                {
+                    using (StreamWriter swEncrypt = new StreamWriter(csEncrypt))
+                    {
+                        //Write all data to the stream.
+                        swEncrypt.Write(plainText);
+                    }
+                }
+                encrypted = msEncrypt.ToArray();
+            }
+        }
+
+        // Return the encrypted bytes from the memory stream.
+        return encrypted;
+    }
+
+    static string DecryptStringFromBytes_Aes(byte[] cipherText, string key)
+    {
+        string plaintext = null;
+
+        using (Aes aesAlg = Aes.Create())
+        {
+            aesAlg.Key = Encoding.UTF8.GetBytes(key);
+            aesAlg.Mode = CipherMode.CBC;
+
+            // Get IV from the beginning of the cipherText
+            byte[] iv = new byte[aesAlg.BlockSize / 8];
+            Array.Copy(cipherText, 0, iv, 0, iv.Length);
+            aesAlg.IV = iv;
+
+            // Create a decryptor to perform the stream transform.
+            ICryptoTransform decryptor = aesAlg.CreateDecryptor(aesAlg.Key, aesAlg.IV);
+
+            // Create the streams used for decryption.
+            using (MemoryStream msDecrypt = new MemoryStream(cipherText, iv.Length, cipherText.Length - iv.Length))
+            {
+                using (CryptoStream csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read))
+                {
+                    using (StreamReader srDecrypt = new StreamReader(csDecrypt))
+                    {
+                        // Read the decrypted bytes from the decrypting stream and place them in a string.
+                        plaintext = srDecrypt.ReadToEnd();
+                    }
+                }
+            }
+        }
+
+        return plaintext;
+    }
     }
 }

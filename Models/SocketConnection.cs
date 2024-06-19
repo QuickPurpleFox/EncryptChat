@@ -118,7 +118,8 @@ namespace EncryptChat.Models
                         if (!_socketSendPublicKey.Contains(clientConnection))
                         {
                             MainWindowViewModel.Messages.Add("Sending: " + "<RSA_PUBLIC_KEY_REQUEST>");
-                            handler.Send(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
+                            await handler.SendAsync(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
+                            await handler.SendAsync(Encoding.ASCII.GetBytes("<AES_KEY_REQUEST>"));
                             _socketSendPublicKey.Add(clientConnection);
                         }
                     }
@@ -148,6 +149,13 @@ namespace EncryptChat.Models
                                     if (!string.IsNullOrEmpty(publicKey))
                                     { 
                                         _clientPublicKeys[senderIp] = publicKey;
+                                        foreach (var clientSend in _clientSockets)
+                                        {
+                                            if (clientConnection != handler)
+                                            {
+                                                clientSend.Send(new ArraySegment<byte>(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY>" + ":" + senderIp + ":" + publicKey)));
+                                            }
+                                        }
                                     }
                                 }
                                 else if (data.Contains("<AES_KEY>"))
@@ -244,13 +252,19 @@ namespace EncryptChat.Models
                         string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
                         if (data.Contains("<RSA_PUBLIC_KEY>"))
                         {
-                            MainWindowViewModel.Messages.Add("Received: " + data);
-                            //TODO: Implement loading a public key
+                            var splitDate = data.Split(':');
+                            MainWindowViewModel.Messages.Add("Received public key: " + splitDate[2]);
+                            _clientPublicKeys[splitDate[1]] = splitDate[2];
                         }
                         else if (data.Contains("<RSA_PUBLIC_KEY_REQUEST>") && !_isServerStatic)
                         {
                             MainWindowViewModel.Messages.Add("Debug: Crypto.GetPublicKey()");
                             byte[] PkMsg = Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY>" + Crypto.GetPublicKey());
+                            SendMessageClient(PkMsg);
+                        }
+                        else if (data.Contains("<AES_KEY_REQUEST>"))
+                        {
+                            byte[] PkMsg = Encoding.ASCII.GetBytes("<AES_KEY>" + Crypto.GetPublicKey());
                             SendMessageClient(PkMsg);
                         }
                         else
