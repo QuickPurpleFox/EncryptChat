@@ -15,7 +15,6 @@ namespace EncryptChat.Models
         private int _port;
         private static bool _isServerStatic;
         private bool _isServer;
-        private static IPHostEntry _host = default!;
         private static IPAddress _ipAddress = default!;
         private static IPEndPoint _localEndPoint = default!;
         private static IPEndPoint _remoteEP = default!;
@@ -24,20 +23,17 @@ namespace EncryptChat.Models
 
         private static List<Socket> _clientSockets = new List<Socket>();
         private static List<Socket> _socketSendPublicKey = new List<Socket>();
-        
+
         private static object _lock = new object();
+        private static object _SendLock = new object();
         public static MessageCryptography Crypto;
 
         // Dictionary to store public keys for each client IP address
-        private static Dictionary<string, string> _clientPublicKeys = new Dictionary<string, string>();
-        
-        // Dictionary to store private AES keys
-        private static Dictionary<string, string> _clientAESKeys = new Dictionary<string, string>();
+        private static Dictionary<string, byte[]> _clientPublicKeys = new Dictionary<string, byte[]>();
 
-        /// <summary>
-        /// Initializes a new instance of the SocketConnection class as a server.
-        /// </summary>
-        /// <param name="isServer">Boolean indicating if this instance is a server.</param>
+        // Dictionary to store private AES keys
+        private static Dictionary<string, byte[]> _clientAESKeys = new Dictionary<string, byte[]>();
+
         public SocketConnection(bool isServer)
         {
             this._isServer = isServer;
@@ -49,11 +45,6 @@ namespace EncryptChat.Models
             }
         }
 
-        /// <summary>
-        /// Initializes a new instance of the SocketConnection class as a client.
-        /// </summary>
-        /// <param name="ip">The IP address to connect to.</param>
-        /// <param name="port">The port to connect to.</param>
         public SocketConnection(string ip, int port)
         {
             this._ip = ip;
@@ -62,38 +53,29 @@ namespace EncryptChat.Models
             StartClient();
         }
 
-        /// <summary>
-        /// Starts the server, binds to the local endpoint, and listens for incoming connections.
-        /// </summary>
         private static async Task StartServer()
         {
-            _host = Dns.GetHostEntry("localhost");
-            _ipAddress = _host.AddressList[0];
-            _localEndPoint = new IPEndPoint(_ipAddress, 11000);
+            // Bind to all available network interfaces (both IPv4 and IPv6)
+            _localEndPoint = new IPEndPoint(IPAddress.IPv6Any, 11000);
 
             try
             {
-                // Create a socket
-                ServerSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-
-                // Bind the socket to the local endpoint and listen for incoming connections
+                ServerSocket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                ServerSocket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, false);
                 ServerSocket.Bind(_localEndPoint);
                 ServerSocket.Listen(10);
-                
+
                 MainWindowViewModel.Messages.Add("Server listening on port : 11000...");
                 MainWindowViewModel.Messages.Add("Waiting for connections...");
 
                 while (true)
                 {
-                    // Accept a connection
                     var handler = await ServerSocket.AcceptAsync();
                     lock (_lock)
                     {
                         _clientSockets.Add(handler);
                     }
                     MainWindowViewModel.Messages.Add("Client connected, IP: " + IPAddress.Parse(((IPEndPoint)handler.RemoteEndPoint).Address.ToString()));
-
-                    // Handle the client in a separate task
                     Task.Run(() => HandleClient(handler));
                 }
             }
@@ -103,66 +85,57 @@ namespace EncryptChat.Models
             }
         }
 
-        /// <summary>
-        /// Handles communication with a connected client, including receiving messages and broadcasting them to other clients.
-        /// </summary>
-        /// <param name="handler">The socket connected to the client.</param>
         private static async Task HandleClient(Socket handler)
         {
             try
             {
+                foreach (var clientConnection in _clientSockets)
+                {
+                    if (!_socketSendPublicKey.Contains(clientConnection))
+                    {
+                        MainWindowViewModel.Messages.Add("Sending: " + "<DH_PUBLIC_KEY_REQUEST>");
+                        handler.Send(System.Text.Encoding.UTF8.GetBytes("<DH_PUBLIC_KEY_REQUEST>"));
+                        _socketSendPublicKey.Add(clientConnection);
+                    }
+                }
+                
                 while (true)
                 {
-                    foreach (var clientConnection in _clientSockets)
-                    {
-                        if (!_socketSendPublicKey.Contains(clientConnection))
-                        {
-                            MainWindowViewModel.Messages.Add("Sending: " + "<RSA_PUBLIC_KEY_REQUEST>");
-                            await handler.SendAsync(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY_REQUEST>"));
-                            await handler.SendAsync(Encoding.ASCII.GetBytes("<AES_KEY_REQUEST>"));
-                            _socketSendPublicKey.Add(clientConnection);
-                        }
-                    }
 
                     byte[] buffer = new byte[1024];
                     int bytesRec = await handler.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
                     if (bytesRec > 0)
                     {
-                        string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
+                        string data = System.Text.Encoding.UTF8.GetString(buffer, 0, bytesRec);
+
+                        MainWindowViewModel.Messages.Add("Received but no display: " + data);
 
                         // Get the sender's IP address
                         string senderIp = ((IPEndPoint)handler.RemoteEndPoint).Address.ToString();
-                        string messageWithIp = $"{senderIp}: {data}";
-                        MainWindowViewModel.Messages.Add(messageWithIp);
+                        string messageWithIp = $"{senderIp}<split> {data}";
+                        MainWindowViewModel.Messages.Add("Received: " + messageWithIp);
 
-                        byte[] msg = Encoding.ASCII.GetBytes(messageWithIp);
+                        byte[] msg = System.Text.Encoding.UTF8.GetBytes(messageWithIp);
 
                         lock (_lock)
                         {
                             foreach (var clientConnection in _clientSockets)
                             {
-                                if (data.Contains("<RSA_PUBLIC_KEY>"))
+                                if (data.Contains("<DH_PUBLIC_KEY>"))
                                 {
-                                    data = data.Replace("<RSA_PUBLIC_KEY>", "");
-                                    string publicKey = XmlHelper.GetModulusFromXml(data);
-                                    MainWindowViewModel.Messages.Add("PublicKey: " + publicKey);
-                                    if (!string.IsNullOrEmpty(publicKey))
-                                    { 
-                                        _clientPublicKeys[senderIp] = publicKey;
-                                        foreach (var clientSend in _clientSockets)
+                                    data = data.Replace("<DH_PUBLIC_KEY>", "");
+                                    byte[] publicKey = Convert.FromBase64String(data);
+                                    _clientPublicKeys[senderIp] = publicKey;
+                                    foreach (var clientSend in _clientSockets)
+                                    {
+                                        if (clientConnection != handler)
                                         {
-                                            if (clientConnection != handler)
-                                            {
-                                                clientSend.Send(new ArraySegment<byte>(Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY>" + ":" + senderIp + ":" + publicKey)));
-                                            }
+                                            MainWindowViewModel.Messages.Add("Sending public key to: " + ((IPEndPoint)clientSend.RemoteEndPoint).Address.ToString() + "key: " + Convert.ToBase64String(publicKey));
+                                            clientSend.Send(System.Text.Encoding.UTF8.GetBytes("<DH_PUBLIC_KEY>" + "<split>" + senderIp + "<split>" + Convert.ToBase64String(publicKey)));
                                         }
                                     }
                                 }
-                                else if (data.Contains("<AES_KEY>"))
-                                {
-                                    //TODO: send encrypted AES key to all clients
-                                }
-                                else if (clientConnection != handler) // Avoid echoing the message back to the sender and check if message is public key
+                                else if (clientConnection != handler) 
                                 {
                                     clientConnection.Send(new ArraySegment<byte>(msg), SocketFlags.None);
                                 }
@@ -171,64 +144,26 @@ namespace EncryptChat.Models
                     }
                 }
             }
-            catch (SocketException)
+            catch (Exception e)
             {
-                // Handle client disconnection
-                lock (_lock)
-                {
-                    _clientSockets.Remove(handler);
-                }
-                MainWindowViewModel.Messages.Add("Client disconnected.");
-                handler.Close();
-            }
-            catch (Exception ex)
-            {
-                MainWindowViewModel.Messages.Add("Error: " + ex.Message);
+                Console.WriteLine(e.ToString());
             }
         }
 
-        /// <summary>
-        /// Starts the client and connects to the server.
-        /// </summary>
         private void StartClient()
         {
-            byte[] bytes = new byte[1024];
-
             try
             {
-                if (!IPAddress.TryParse(_ip!, out _ipAddress))
-                {
-                    MainWindowViewModel.Messages.Add("Invalid IP address format.");
-                    return;
-                }
-                MainWindowViewModel.Messages.Add("Connecting to: " + _ipAddress);
-                
-                _host = Dns.GetHostEntry(_ip);
+                _ipAddress = IPAddress.Parse(_ip);  // Ensure _ipAddress is set correctly
                 _remoteEP = new IPEndPoint(_ipAddress, _port);
-
-                // Create a socket
                 ClientSocket = new Socket(_ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                
-                try
-                {
-                    ClientSocket.Connect(_remoteEP);
-                    MainWindowViewModel.Messages.Add("Socket connected to " + ClientSocket?.RemoteEndPoint?.ToString());
+                ClientSocket.Connect(_remoteEP);
 
-                    // Start receiving messages from the server
-                    Task.Run(() => ReceiveMessages());
-                }
-                catch (SocketException se)
-                {
-                    MainWindowViewModel.Messages.Add("SocketException: " + se.ToString());
-                }
-                catch (ArgumentNullException ane)
-                {
-                    MainWindowViewModel.Messages.Add("ArgumentNullException: " + ane.ToString());
-                }
-                catch (Exception e)
-                {
-                    MainWindowViewModel.Messages.Add("Unexpected exception: " + e.ToString());
-                }
+                byte[] publicKey = Crypto.PublicKeyNonStatic;
+                
+                MainWindowViewModel.Messages.Add("Your PK: " + Convert.ToBase64String(publicKey));
+
+                Task.Run(() => ListenForServerMessages());
             }
             catch (Exception e)
             {
@@ -236,10 +171,7 @@ namespace EncryptChat.Models
             }
         }
 
-        /// <summary>
-        /// Receives messages from the server.
-        /// </summary>
-        private static async Task ReceiveMessages()
+        private async Task ListenForServerMessages()
         {
             try
             {
@@ -249,66 +181,70 @@ namespace EncryptChat.Models
                     int bytesRec = await ClientSocket.ReceiveAsync(new ArraySegment<byte>(buffer), SocketFlags.None);
                     if (bytesRec > 0)
                     {
-                        string data = Encoding.ASCII.GetString(buffer, 0, bytesRec);
-                        if (data.Contains("<RSA_PUBLIC_KEY>"))
+                        string data = System.Text.Encoding.UTF8.GetString(buffer, 0, bytesRec);
+
+                        MainWindowViewModel.Messages.Add("Received but not display: " + data);
+
+                        if (data.Contains("<DH_PUBLIC_KEY_REQUEST>"))
                         {
-                            var splitDate = data.Split(':');
-                            MainWindowViewModel.Messages.Add("Received public key: " + splitDate[2]);
-                            _clientPublicKeys[splitDate[1]] = splitDate[2];
+                            SendMessageClient("<DH_PUBLIC_KEY>" + Convert.ToBase64String(Crypto.PublicKeyNonStatic));
                         }
-                        else if (data.Contains("<RSA_PUBLIC_KEY_REQUEST>") && !_isServerStatic)
+                        else if (data.Contains("<DH_PUBLIC_KEY>"))
                         {
-                            MainWindowViewModel.Messages.Add("Debug: Crypto.GetPublicKey()");
-                            byte[] PkMsg = Encoding.ASCII.GetBytes("<RSA_PUBLIC_KEY>" + Crypto.GetPublicKey());
-                            SendMessageClient(PkMsg);
-                        }
-                        else if (data.Contains("<AES_KEY_REQUEST>"))
-                        {
-                            byte[] PkMsg = Encoding.ASCII.GetBytes("<AES_KEY>" + Crypto.GetPublicKey());
-                            SendMessageClient(PkMsg);
+                            string[] parts = data.Split("<split>");
+                            string senderIp = parts[1];
+                            byte[] publicKey = Convert.FromBase64String(parts[2]);
+                            _clientPublicKeys[senderIp] = publicKey;
+                            MainWindowViewModel.Messages.Add("DH key from " + senderIp + ": " + Convert.ToBase64String(publicKey));
+                            byte[] sharedSecret = Crypto.ComputeDiffieHellmanSharedSecret(publicKey);
+                            _clientAESKeys[senderIp] = sharedSecret;
                         }
                         else
                         {
-                            MainWindowViewModel.Messages.Add(data); //TODO: change to decryption
+                            string[] parts = data.Split("<split>");
+                            string senderIp = parts[0];
+                            MainWindowViewModel.Messages.Add("SenderIP: " + parts[0]);
+                            MainWindowViewModel.Messages.Add(data);
+                            string? message = Crypto.DecryptMessage(Convert.FromBase64String(parts[0]) , _clientPublicKeys.GetValueOrDefault(senderIp));
+                            MainWindowViewModel.Messages.Add(message);
                         }
                     }
                 }
             }
-            catch (SocketException)
+            catch (Exception e)
             {
-                MainWindowViewModel.Messages.Add("Disconnected from server.");
-            }
-            catch (Exception ex)
-            {
-                MainWindowViewModel.Messages.Add("Error: " + ex.Message);
+                Console.WriteLine(e.ToString());
             }
         }
 
-        /// <summary>
-        /// Sends a message from the client to the server.
-        /// </summary>
-        /// <param name="bytes">The message to send as a byte array.</param>
-        private static void SendMessageClient(byte[] bytes)
+        public static void SendMessageClient(string message)
         {
             try
             {
-                // Send the data through the socket.
-                int bytesSent = ClientSocket.Send(bytes);
+                MainWindowViewModel.Messages.Add("Sending: " + message);
+                if (message.Contains("<DH_PUBLIC_KEY>"))
+                {
+                    byte[] msg = System.Text.Encoding.UTF8.GetBytes(message);
+                    ClientSocket.Send(msg);
+                }
+                else
+                {
+                    string senderIp = ((IPEndPoint)ClientSocket.LocalEndPoint).Address.ToString();
+                    byte[] encryptedMessage = Crypto.EncryptMessage(message);
+                    string encryptedMessageBase64 = Convert.ToBase64String(encryptedMessage);
+                    byte[] msg = Convert.FromBase64String(encryptedMessageBase64);
+                    ClientSocket.Send(msg);
+                }
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
-                MainWindowViewModel.Messages.Add("Error sending message: " + Encoding.ASCII.GetString(bytes) + " | " + ex.Message);
+                Console.WriteLine(e.ToString());
             }
         }
-
-        /// <summary>
-        /// Sends a public message from the client to the server.
-        /// </summary>
-        /// <param name="message">The message to send as a string.</param>
-        public void SendMessageClientPublic(string message)
+        
+        public void SendMessageClientNonStatic(string message)
         {
-            byte[] bytes = Encoding.ASCII.GetBytes("<MSG>" + message);
-            SendMessageClient(bytes);
+            SendMessageClient(message);
         }
     }
 }

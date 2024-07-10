@@ -80,7 +80,7 @@ namespace EncryptChat.Views
                 MessageText.Text = string.Empty;
                 if ((_socket.GetType() == typeof(SocketConnection)))
                 {
-                    _socket.SendMessageClientPublic(message);
+                    _socket.SendMessageClientNonStatic(message);
                     MainWindowViewModel.Messages.Add("You: " + message);
                 }
                 else
